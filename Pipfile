@@ -8,6 +8,8 @@ verify_ssl = true
 [packages]
 click = "*"
 networkx = "*"
+numpy = "*"
+tqdm = "*"
 
 [requires]
 python_version = "3.6"
