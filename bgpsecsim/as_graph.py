@@ -33,6 +33,41 @@ def parse_as_rel_file(filename: str) -> nx.Graph:
 
     return graph
 
+def parse_by_rel_type(filename: str) -> (nx.Graph, nx.Graph, nx.Graph):
+    c2p_graph = nx.DiGraph()
+    p2p_graph = nx.Graph()
+    p2c_graph = nx.DiGraph()
+
+    with open(filename, 'r') as f:
+        graph = nx.Graph()
+
+        for line in f:
+            # Ignore lines starting with #
+            if line.startswith('#'):
+                continue
+
+            # The 'serial-1' as-rel files contain p2p and p2c relationships. The format is:
+            # <provider-as>|<customer-as>|-1
+            # <peer-as>|<peer-as>|0
+            items = line.split('|')
+            if len(items) != 3:
+                raise error.InvalidASRelFile(filename, f"bad line: {line}")
+
+            [as1, as2, rel] = map(int, items)
+            for graph in [c2p_graph, p2p_graph, p2c_graph]:
+                if as1 not in graph:
+                    graph.add_node(as1)
+                if as2 not in graph:
+                    graph.add_node(as2)
+            
+            if rel == 0:
+                p2p_graph.add_edge(as1, as2)
+            elif rel == -1:
+                c2p_graph.add_edge(as2, as1)
+                p2c_graph.add_edge(as1, as2)
+ 
+    return (c2p_graph, p2p_graph, p2c_graph)
+
 class ASGraph(object):
     __slots__ = ['asyss', 'graph']
 

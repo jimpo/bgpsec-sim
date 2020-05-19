@@ -1,6 +1,8 @@
 import click
 import networkx as nx
 import random
+import numpy as np
+import tqdm
 
 import as_graph
 from as_graph import ASGraph
@@ -25,6 +27,64 @@ def check_graph(as_rel_file):
         print("Graph has a customer-provider cycle!")
     else:
         print("Graph has no cycles")
+        
+@cli.command()
+@click.argument('as-rel-file')
+@click.argument('as-reachability-file')
+# Outputs a list of <ASIN> <# reachable ASes>, 
+def check_connectivity(as_rel_file, as_reachability_file):
+    (c2p_graph, p2p_graph, p2c_graph) = as_graph.parse_by_rel_type(as_rel_file)
+    
+    index = {}
+    reverse_index = {}
+
+    for i, n in enumerate(p2p_graph.nodes):
+        index[n] = i
+        reverse_index[i] = n
+    
+    num_nodes = p2p_graph.number_of_nodes()
+    
+    print("Loaded", num_nodes, "nodes")
+    print("Loaded", c2p_graph.number_of_edges(), "directed edges")
+    print("Loaded", p2p_graph.number_of_edges(), "undirected edges")
+    
+    # Array of nodes reachable by descent into a customer cone
+    p2c_adjacency = np.zeros((num_nodes, num_nodes), dtype=np.byte)
+    print("Descending into the valley of consumption...")
+    for source in tqdm.tqdm(p2c_graph.nodes):
+        for destination in nx.bfs_tree(p2c_graph, source):
+            p2c_adjacency[index[source]][index[destination]] = 1   
+    del p2c_graph
+
+    print("Finding peer-customers...")
+    # Array of nodes reachable by one peer-peer edge and descent into a customer cone
+    p2pc_adjacency = np.zeros((num_nodes, num_nodes), dtype=np.byte)
+    for source in tqdm.tqdm(p2p_graph.nodes):
+        si = index[source]  
+        for destination in p2p_graph[source]:
+            p2pc_adjacency[si] += p2c_adjacency[index[destination]]
+    del p2p_graph
+    
+    print("Climbing the mountain of provision...")    
+    reachability = np.zeros((num_nodes, num_nodes), dtype=np.byte)
+    for source in tqdm.tqdm(c2p_graph.nodes):
+        reachability[index[source]][index[source]] = 1
+        
+        # Get any nodes reachable by taking customer->provider links
+        for destination in nx.bfs_tree(c2p_graph, source):
+            [si, di] = index[source], index[destination]
+            reachability[si][di] = 1
+            # While we're here, let's also get any peers and peer-customers of the destination
+            reachability[si] += p2pc_adjacency[di]
+        
+    reachable_counts = {}
+    print("Compiling reachability dictionary...")
+    for source in tqdm.tqdm(c2p_graph.nodes):
+        reachable_counts[source] = np.count_nonzero(reachability[index[source]])
+    
+    with open(as_reachability_file, 'w') as file:
+        for asin in tqdm.tqdm(c2p_graph.nodes):
+            file.write(str(asin) + " " + str(reachable_counts[asin]))
 
 @cli.command()
 @click.argument('as-rel-file')
